@@ -109,9 +109,68 @@ Supported targets:
 - package   - package TF into docker containers
 - test      - run unittests
 
+## Developer Usage
+
+### Purpose
+
+For a developer who has access to a personal Linux machine (VM or physical), it is convenient to have a development host with all the tools needed to build to and debug, so that additional tools (like IDEs, debuggers, etc) can be leveraged.  This is most useful when developing legacy C++ components, or if you want to code with GUI tools like VS Code.
+
+### Overview
+
+The script ```run_local.sh``` (actually just a symlink to ```run.sh```) can be used 
+for that purpose.  Simply use ```run_local.sh``` wherever you see the instructions to
+invoke ```run.sh``` and your development host will be set up similarly to the sandbox
+container, ready to build.
+
+Note that only *one* local ```tf-dev-env``` can be set up on a given host at a time, 
+due to hard-coded paths utilized by the build scripts.  ```run_local.sh``` sets up the following paths:
+
+|Path|Purpose|
+|----|-------|
+|/root/tf-dev-env|Bind-mounted path for the tf-dev-env.|
+|/root/contrail|Symlinked path to the downloaded source code.  RPM build output directories will be populated here (e.g.-- RPMS).|
+
+### Development System Requirements
+
+1. Centos 7
+2. 4 CPU
+3. 8GB RAM
+4. 100 GB disk, configured as a single large root volume managed with LVM.
+5. ```git``` installed with the global configuration ```user.name``` and ```user.email``` set.  You can configure ```git``` as follows:
+    1. ```git config --global user.name "Your Name"```
+    2. ```git config --global user.email "yourname@company.com"```
+6. ```bash``` shell
+
+### Instructions
+
+Let's say you want to run/debug some unit tests for the control node.  You can do so
+as follows:
+
+1. Log in to the development system as ```root``` (e.g.- via GNOME desktop).
+1. Clone tf-dev-env to a directory of your choice and change to that directory.
+1. If you have defined your own feature fork (e.g.- contrail-config-ng), set your ```CONTRAIL_FETCH_REPO``` to the git repo URL of ```contrail-vnc```, for example: ```export CONTRAIL_FETCH_REPO=https://github.com/edwinpjacques/contrail-vnc```
+1. ```./run_local.sh```
+1. ```. ~/.bashrc```
+1. ```cd /root/contrail```
+1. ```scons -j4 src/contrail-common/config-client-mgr:test```
+
+Note that if you want to use the ```make``` targets you can do so from the tf-dev-env folder.  For example:
+1. ```cd /root/tf-dev-env```
+2. ```make test```
+
+If you want to build RPM's after you have set up the build environment (by running ```./run_local.sh```) run:
+```./run_local.sh compile```
+RPM's will be placed in the /root/contrail/RPMS directory.
+
+Finally, if you want to clean up the build workspace to save some disk space, run:
+
+```./cleanup.sh```
+
+More information can be found in the [Advanced usage](#advanced-usage) section below.
+
 ## Advanced usage
 
-It is possible to use  more finegraned build process via running make tool for building artifacts manually.
+It is possible to use more fine-grained build process via running make tool for building artifacts manually.
 Note: the described way below uses internal commands and might be changed in future.
 
 ### 1. Prepare developer-sandbox container and dont run any targets

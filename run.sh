@@ -1,8 +1,8 @@
 #!/bin/bash
 
 scriptdir=$(realpath $(dirname "$0"))
-source ${scriptdir}/common/common.sh
 source ${scriptdir}/common/functions.sh
+source ${scriptdir}/common/common.sh
 source ${scriptdir}/common/tf_functions.sh
 
 stage="$1"
@@ -55,79 +55,90 @@ log_path="${WORKSPACE}/build_${timestamp}.log"
 # input dir can be already created and had files like patchsets-info.json, unittest_targets.lst
 input_dir="${scriptdir}/input"
 mkdir -p "$input_dir"
-tf_container_env_file="${input_dir}/tf-developer-sandbox.env"
-create_env_file "$tf_container_env_file"
+tf_env_file="${input_dir}/tf-developer-sandbox.env"
+create_env_file "$tf_env_file"
 
-# mount this dir always - some stage can put files there even if it was empty when container was created
-mkdir -p ${scriptdir}/config
-# and put tpc.repo there cause stable image doesn't have it
-mkdir -p ${scriptdir}/config/etc/yum.repos.d
-cp -f ${scriptdir}/tpc.repo ${scriptdir}/config/etc/yum.repos.d/
+if [[ "$CONTRAIL_BUILD_LOCAL" != 1 ]]; then
+  # mount this dir always - some stage can put files there even if it was empty when container was created
+  mkdir -p ${scriptdir}/config
+  # and put tpc.repo there because stable image doesn't have it
+  mkdir -p ${scriptdir}/config/etc/yum.repos.d
+  cp -f ${scriptdir}/tpc.repo ${scriptdir}/config/etc/yum.repos.d/
+fi
 
 echo
 echo '[environment setup]'
-if ! is_container_created "$DEVENV_CONTAINER_NAME"; then
-  if [[ "$BUILD_DEV_ENV" != '1' ]] && ! is_container_created ${CONTAINER_REGISTRY}/$DEVENV_IMAGE ; then
-    if ! mysudo docker inspect ${CONTAINER_REGISTRY}/$DEVENV_IMAGE >/dev/null 2>&1 && ! mysudo docker pull ${CONTAINER_REGISTRY}/$DEVENV_IMAGE ; then
-      if [[ "$BUILD_DEV_ENV_ON_PULL_FAIL" != '1' ]]; then
-        exit 1
+if [[ "$CONTRAIL_BUILD_LOCAL" != 1 ]]; then
+  if ! is_container_created "$DEVENV_CONTAINER_NAME"; then
+    if [[ "$BUILD_DEV_ENV" != '1' ]] && ! is_container_created ${CONTAINER_REGISTRY}/$DEVENV_IMAGE ; then
+      if ! mysudo docker inspect ${CONTAINER_REGISTRY}/$DEVENV_IMAGE >/dev/null 2>&1 && ! mysudo docker pull ${CONTAINER_REGISTRY}/$DEVENV_IMAGE ; then
+        if [[ "$BUILD_DEV_ENV_ON_PULL_FAIL" != '1' ]]; then
+          exit 1
+        fi
+        echo "No image $DEVENV_IMAGE is available. Try to build."
+        BUILD_DEV_ENV=1
       fi
-      echo "No image $DEVENV_IMAGE is available. Try to build."
-      BUILD_DEV_ENV=1
+    fi
+
+    if [[ "$BUILD_DEV_ENV" == '1' ]]; then
+      echo "Build $DEVENV_IMAGE docker image"
+      cd ${scriptdir}/container
+      ./build.sh -i ${DEVENV_IMAGE_NAME} ${DEVENV_TAG}
+      cd ${scriptdir}
+    fi
+
+    options="-e LC_ALL=en_US.UTF-8 -e LANG=en_US.UTF-8 -e LANGUAGE=en_US.UTF-8 "
+    volumes="-v /var/run:/var/run:${DOCKER_VOLUME_OPTIONS}"
+    if [[ $DISTRO != "macosx" ]]; then
+        volumes+=" -v /etc/localtime:/etc/localtime"
+    fi
+    volumes+=" -v ${scriptdir}:/$DEVENV_USER/tf-dev-env:${DOCKER_VOLUME_OPTIONS}"
+    if [[ "$BIND_CONTRAIL_DIR" != 'false' ]] ; then
+      # make dir to create them under current user
+      mkdir -p ${CONTRAIL_DIR}
+      volumes+=" -v ${CONTRAIL_DIR}:/$DEVENV_USER/contrail:${DOCKER_VOLUME_OPTIONS}"
+    elif [[ -n "$CONTRAIL_BUILD_FROM_SOURCE" && -n "${src_volume_name}" ]] ; then
+      volumes+=" -v ${src_volume_name}:/$DEVENV_USER/contrail:${DOCKER_VOLUME_OPTIONS}"
+    fi
+    # make dir to create them under current user
+    mkdir -p ${WORKSPACE}/output
+    volumes+=" -v ${WORKSPACE}/output:/output:${DOCKER_VOLUME_OPTIONS}"
+    volumes+=" -v ${input_dir}:/input:${DOCKER_VOLUME_OPTIONS}"
+    volumes+=" -v ${scriptdir}/config:/config:${DOCKER_VOLUME_OPTIONS}"
+    # Provide env variables because:
+    #  - there is backward compatibility case with manual doing docker exec
+    #  into container and user of make.
+    #  - TF Jenkins CI use non-bind folder for sources
+    start_sandbox_cmd="mysudo docker run --network host --privileged --detach \
+      --name $DEVENV_CONTAINER_NAME \
+      -w /$DEVENV_USER ${options} \
+      $volumes -it \
+      ${CONTAINER_REGISTRY}/${DEVENV_IMAGE}"
+
+    echo "INFO: start cmd '$start_sandbox_cmd'"
+    eval $start_sandbox_cmd 2>&1 | tee ${log_path}
+    if [[ ${PIPESTATUS[0]} != 0 ]] ; then
+      echo
+      echo "ERROR: Failed to run $DEVENV_CONTAINER_NAME container."
+      exit 1
+    fi
+
+    echo $DEVENV_CONTAINER_NAME created.
+  else
+    if is_container_up "$DEVENV_CONTAINER_NAME"; then
+      echo "$DEVENV_CONTAINER_NAME already running."
+    else
+      echo "$(mysudo docker start $DEVENV_CONTAINER_NAME) started."
     fi
   fi
-
-  if [[ "$BUILD_DEV_ENV" == '1' ]]; then
-    echo "Build $DEVENV_IMAGE docker image"
-    cd ${scriptdir}/container
-    ./build.sh -i ${DEVENV_IMAGE_NAME} ${DEVENV_TAG}
-    cd ${scriptdir}
-  fi
-
-  options="-e LC_ALL=en_US.UTF-8 -e LANG=en_US.UTF-8 -e LANGUAGE=en_US.UTF-8 "
-  volumes="-v /var/run:/var/run:${DOCKER_VOLUME_OPTIONS}"
-  if [[ $DISTRO != "macosx" ]]; then
-      volumes+=" -v /etc/localtime:/etc/localtime"
-  fi
-  volumes+=" -v ${scriptdir}:/$DEVENV_USER/tf-dev-env:${DOCKER_VOLUME_OPTIONS}"
-  if [[ "$BIND_CONTRAIL_DIR" != 'false' ]] ; then
-    # make dir to create them under current user
-    mkdir -p ${CONTRAIL_DIR}
-    volumes+=" -v ${CONTRAIL_DIR}:/$DEVENV_USER/contrail:${DOCKER_VOLUME_OPTIONS}"
-  elif [[ -n "$CONTRAIL_BUILD_FROM_SOURCE" && -n "${src_volume_name}" ]] ; then
-    volumes+=" -v ${src_volume_name}:/$DEVENV_USER/contrail:${DOCKER_VOLUME_OPTIONS}"
-  fi
-  # make dir to create them under current user
-  mkdir -p ${WORKSPACE}/output
-  volumes+=" -v ${WORKSPACE}/output:/output:${DOCKER_VOLUME_OPTIONS}"
-  volumes+=" -v ${input_dir}:/input:${DOCKER_VOLUME_OPTIONS}"
-  volumes+=" -v ${scriptdir}/config:/config:${DOCKER_VOLUME_OPTIONS}"
-  # Provide env variables because:
-  #  - there is backward compatibility case with manual doing docker exec
-  #  into container and user of make.
-  #  - TF Jenkins CI use non-bind folder for sources
-  start_sandbox_cmd="mysudo docker run --network host --privileged --detach \
-    --name $DEVENV_CONTAINER_NAME \
-    -w /$DEVENV_USER ${options} \
-    $volumes -it \
-    ${CONTAINER_REGISTRY}/${DEVENV_IMAGE}"
-
-  echo "INFO: start cmd '$start_sandbox_cmd'"
-  eval $start_sandbox_cmd 2>&1 | tee ${log_path}
-  if [[ ${PIPESTATUS[0]} != 0 ]] ; then
-    echo
-    echo "ERROR: Failed to run $DEVENV_CONTAINER_NAME container."
-    exit 1
-  fi
-
-  echo $DEVENV_CONTAINER_NAME created.
 else
-  if is_container_up "$DEVENV_CONTAINER_NAME"; then
-    echo "$DEVENV_CONTAINER_NAME already running."
-  else
-    echo "$(mysudo docker start $DEVENV_CONTAINER_NAME) started."
-  fi
-fi
+  # Local build.  Skip setup if a stage was specified (presume already run).
+  . "$tf_env_file"
+  [[ -n "$stage" ]] || $scriptdir/container/setup_centos.sh
+  # Create output paths
+  mkdir -p ${CONTRAIL_DIR}
+  mkdir -p ${WORKSPACE}/output
+fi # if [[ "$CONTRAIL_BUILD_LOCAL" != 1 ]]
 
 if [[ "$stage" == 'none' ]] ; then
   echo "INFO: don't run any stages"
@@ -135,7 +146,11 @@ if [[ "$stage" == 'none' ]] ; then
 fi
 
 echo "run stage $stage with target $target"
-mysudo docker exec -i $DEVENV_CONTAINER_NAME /$DEVENV_USER/tf-dev-env/container/run.sh $stage $target | tee -a ${log_path}
+if [[ "$CONTRAIL_BUILD_LOCAL" != 1 ]]; then
+  mysudo docker exec -i $DEVENV_CONTAINER_NAME /$DEVENV_USER/tf-dev-env/container/run.sh $stage $target | tee -a ${log_path}
+else
+  /$DEVENV_USER/tf-dev-env/container/run.sh $stage $target | tee -a ${log_path}
+fi
 result=${PIPESTATUS[0]}
 
 if [[ $result == 0 ]] ; then

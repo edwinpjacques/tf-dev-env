@@ -49,11 +49,11 @@ function setup_httpd() {
 }
 
 function mysudo() {
-    if [[ $DISTRO == "macosx" ]]; then
-	"$@"
-    else
-	sudo "$@"
-    fi
+  if [[ $DISTRO == "macosx" ]]; then
+	  "$@"
+  else
+	  sudo "$@"
+  fi
 }
 
 function save_tf_devenv_profile() {
@@ -94,6 +94,40 @@ function install_prerequisites_centos() {
   if [ -n "$pkgs" ] ; then
     mysudo yum install -y $pkgs
   fi
+
+  # determine if we're building locally
+  if [[ "$CONTRAIL_BUILD_LOCAL" == 1 ]]; then
+    if [[ "$USER" != "root" ]]; then
+      die "run_local.sh MUST be run as root."
+    fi
+    echo
+    echo "INFO: Local build setup (outside of docker)"
+    # Make installation lighter-weight by default for a developer
+    export CONTRAIL_SETUP_DOCKER=${CONTRAIL_SETUP_DOCKER:-0}
+    export CONTRAIL_DEPLOY_REGISTRY=${CONTRAIL_DEPLOY_REGISTRY:-0}
+    export CONTRAIL_DEPLOY_RPM_REPO=${CONTRAIL_DEPLOY_RPM_REPO:-0}
+    # Setting up some mounts for the build
+    export CONTRAIL_DEV_ENV=/root/tf-dev-env
+    if [[ "$scriptdir" != "${CONTRAIL_DEV_ENV}" ]] && ! (mount | grep -qF " on ${CONTRAIL_DEV_ENV} "); then
+      mkdir -p "${CONTRAIL_DEV_ENV}" || die "Could not create directory"
+      append_if_missing "${scriptdir} ${CONTRAIL_DEV_ENV} none bind,rw 0 0" /etc/fstab || die "Could not edit /etc/fstab"
+      mount ${CONTRAIL_DEV_ENV} || die "Could not mount ${CONTRAIL_DEV_ENV}"
+    fi
+    ln -nsf "$scriptdir"/contrail /root/contrail
+    # also makes vscode available
+    cp "$scriptdir"/*.repo /etc/yum.repos.d/
+
+    # be nice to developers
+    yum -y install bash-completion-extras
+    # enable and start docker in case is was just installed
+    systemctl enable docker
+    # disable selinux right now
+    setenforce 0 || true
+    # keep selinux disabled after reboot
+    sed -i 's:^SELINUX=.*:SELINUX=disabled:' /etc/selinux/config
+    # disable firewalld to avoid test execution problems
+    systemctl disable firewalld
+  fi  
 }
 
 function install_prerequisites_rhel() {
@@ -119,3 +153,14 @@ function install_prerequisites_macosx() {
   fi
 }
 
+function die() {
+  echo
+  echo "ERROR: $*"
+  exit 1
+}
+
+function append_if_missing() {
+  line="$1"
+  file="$2"
+  grep -qF "$line" "$file" || echo "$line" >>"$file"
+}
