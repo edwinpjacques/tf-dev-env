@@ -21,7 +21,7 @@ export CONTRAIL_CONTAINER_TAG=${CONTRAIL_CONTAINER_TAG:-"dev"}
 openstack_version="train"
 CONTRAIL_KEEP_LOG_FILES=${CONTRAIL_KEEP_LOG_FILES:-'false'}
 
-tpc_repo="$CONTRAIL_CONFIG_DIR/etc/yum.repos.d/tpc.repo"
+tpc_repo="/etc/yum.repos.d/tpc.repo"
 if [ -f $tpc_repo ]; then
   cp $tpc_repo ${CONTRAIL_TEST_DIR}/docker/base/tpc.repo
   cp $tpc_repo ${CONTRAIL_TEST_DIR}/docker/test/tpc.repo
@@ -29,9 +29,13 @@ fi
 
 pushd ${CONTRAIL_TEST_DIR}
 
-if [[ -n "$CONTRAIL_CONFIG_DIR" && -d "${CONTRAIL_CONFIG_DIR}/etc/yum.repos.d" ]] ; then
+if [[ -n "$CONTRAIL_CONFIG_DIR" && -d "${CONTRAIL_CONFIG_DIR}/etc/yum.repos.d" && -n "$(ls ${CONTRAIL_CONFIG_DIR}/etc/yum.repos.d/)" ]] ; then
   # apply same repos for test containers
   cp -f ${CONTRAIL_CONFIG_DIR}/etc/yum.repos.d/* docker/base/
+fi
+
+if [ -e $CONTRAIL_CONFIG_DIR/etc/pip.conf ]; then
+  cp $CONTRAIL_CONFIG_DIR/etc/pip.conf docker/base/
 fi
 
 function append_log() {
@@ -91,7 +95,7 @@ else
 fi
 
 if [[ $res == '0' ]]; then
-  build_for_os_version $openstack_version
+  build_for_os_version $openstack_version || res=1
 fi
 
 popd
@@ -100,7 +104,6 @@ contrail_test_logs="${CONTRAIL_OUTPUT_DIR:-/output}/logs/contrail-test"
 mkdir -p "$contrail_test_logs"
 # do not fail script if logs files are absent
 mv "${CONTRAIL_TEST_DIR}"/*.log "$contrail_test_logs" || /bin/true
-
 
 deployment_test_logfile="${WORKSPACE}/tf_deployment_test_build_containers.log"
 if [[ $res == '0' && -e ${REPODIR}/tf-deployment-test/build-containers.sh ]]; then
@@ -111,6 +114,5 @@ tf_deployment_test_logs="${CONTRAIL_OUTPUT_DIR:-/output}/logs/tf-deployment-test
 mkdir -p "$tf_deployment_test_logs"
 # do not fail script if logs file is absent
 mv "$deployment_test_logfile" "$tf_deployment_test_logs" || /bin/true
-
 
 exit $res

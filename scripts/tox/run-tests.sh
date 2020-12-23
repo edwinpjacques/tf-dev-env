@@ -23,11 +23,16 @@ cd $HOME/contrail
 
 project=$(echo $GERRIT_PROJECT | cut -d '/' -f 2)
 echo "INFO: short project name: $project"
-path=$(./repo list -f -r $project | awk '{print $1}')
+path=$(./repo list -f -r $project | awk '{print $1}' | head -1)
 echo "INFO: project path: $path"
 
 res=0
 pushd $path
+if [ ! -e tox.ini ]; then
+  echo "WARNING: tox.ini is absent. Skipping tests."
+  exit 0
+fi
+
 tox -e $target_set || res=1
 popd
 

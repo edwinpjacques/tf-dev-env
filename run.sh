@@ -57,9 +57,6 @@ create_env_file "$tf_container_env_file"
 
 # mount this dir always - some stage can put files there even if it was empty when container was created
 mkdir -p ${scriptdir}/config
-# and put tpc.repo there cause stable image doesn't have it
-mkdir -p ${scriptdir}/config/etc/yum.repos.d
-cp -f ${scriptdir}/tpc.repo ${scriptdir}/config/etc/yum.repos.d/
 
 devenv_image="$CONTAINER_REGISTRY/$DEVENV_IMAGE"
 
@@ -138,7 +135,7 @@ else
   fi
 fi
 
-if [[ "$stage" == @(none|frozen) ]] ; then
+if [[ "$stage" == 'none' || "$stage" == 'frozen' ]] ; then
   echo "INFO: don't run any stages"
   exit 0
 fi

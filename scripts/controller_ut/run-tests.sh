@@ -21,9 +21,13 @@ bash -c 'echo "::1 localhost" >> /etc/hosts'
 
 unset BUILD_ONLY
 
+# pip==20.3.1 has issues with installing packages. looks like new resolver is broken for python3.6
+# let's pin old version to avoid such issues
+export VIRTUALENV_PIP="20.2"
+
 echo "INFO: Prepare targets $(date)"
 targets_file="${CONTRAIL_INPUT_DIR:-/input}/unittest_targets.lst"
-if [[ ! -f "$targets_file" ]] ; then
+if [[ ! -f "$targets_file" || -n "$TARGET" ]] ; then
   targets_file='/tmp/unittest_targets.lst'
   rm "$targets_file" && touch "$targets_file"
   for utest in $(jq -r ".[].scons_test_targets[]"  controller/ci_unittests.json| sort | uniq) ; do

@@ -6,6 +6,9 @@ yum -y remove userspace-rcu golang golang-bin golang-src
 if ! yum info jq ; then yum -y install epel-release ; fi
 yum -y update
 
+# NOTE: pin nss version due to bug https://bugzilla.redhat.com/show_bug.cgi?id=1896808
+RUN yum -y downgrade nss*
+
 # get python2 pip, but reinstall python3-pip if present because get-pip.py breaks it.
 curl --retry 3 --retry-delay 10 https://bootstrap.pypa.io/get-pip.py | python2 - 'pip==20.1'
 yum -y reinstall python3-pip || true
